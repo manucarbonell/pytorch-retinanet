@@ -136,7 +136,7 @@ class CSVDataset(Dataset):
         self.train_file = train_file
         self.class_list = class_list
         self.transform = transform
-
+	self.max_label_len = 20
         # parse the provided class file
         try:
             with self._open_for_csv(self.class_list) as file:
@@ -149,6 +149,7 @@ class CSVDataset(Dataset):
             self.labels[value] = key
 
         # csv with img_path, x1, y1, x2, y2, class_name
+	train_file = self._open_for_csv(self.train_file)
         try:
             with self._open_for_csv(self.train_file) as file:
                 self.image_data = self._read_annotations(csv.reader(file, delimiter=','), self.classes)
@@ -222,7 +223,7 @@ class CSVDataset(Dataset):
     def load_annotations(self, image_index):
         # get ground truth annotations
         annotation_list = self.image_data[self.image_names[image_index]]
-        annotations     = np.zeros((0, 5))
+        annotations     = np.zeros((0, 5+self.max_label_len))
 
         # some images appear to miss annotations (like image with id 257034)
         if len(annotation_list) == 0:
@@ -239,7 +240,7 @@ class CSVDataset(Dataset):
             if (x2-x1) < 1 or (y2-y1) < 1:
                 continue
 
-            annotation        = np.zeros((1, 5))
+            annotation        = np.zeros((1,self.max_label_len+ 5))
             
             annotation[0, 0] = x1
             annotation[0, 1] = y1
@@ -312,7 +313,7 @@ def collater(data):
 
     max_width = np.array(widths).max()
     max_height = np.array(heights).max()
-
+    max_label_len = 20
     padded_imgs = torch.zeros(batch_size, max_width, max_height, 3)
 
     for i in range(batch_size):
@@ -323,7 +324,7 @@ def collater(data):
     
     if max_num_annots > 0:
 
-        annot_padded = torch.ones((len(annots), max_num_annots, 5)) * -1
+        annot_padded = torch.ones((len(annots), max_num_annots, 5+max_label_len)) * -1
 
         if max_num_annots > 0:
             for idx, annot in enumerate(annots):
@@ -331,7 +332,7 @@ def collater(data):
                 if annot.shape[0] > 0:
                     annot_padded[idx, :annot.shape[0], :] = annot
     else:
-        annot_padded = torch.ones((len(annots), 1, 5)) * -1
+        annot_padded = torch.ones((len(annots), 1, 5+max_label_len)) * -1
 
 
     padded_imgs = padded_imgs.permute(0, 3, 1, 2)
@@ -341,7 +342,7 @@ def collater(data):
 class Resizer(object):
     """Convert ndarrays in sample to Tensors."""
 
-    def __call__(self, sample, min_side=608, max_side=1024):
+    def __call__(self, sample, min_side=1216, max_side=2048):
         image, annots = sample['img'], sample['annot']
 
         rows, cols, cns = image.shape
