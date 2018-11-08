@@ -7,6 +7,7 @@ from utils import BasicBlock, Bottleneck, BBoxTransform, ClipBoxes
 from anchors import Anchors
 import losses
 from lib.nms.pth_nms import pth_nms
+from warpctc_pytorch import CTCLoss
 
 def nms(dets, thresh):
     "Dispatch to either CPU or GPU NMS implementations.\
@@ -158,6 +159,19 @@ class ClassificationModel(nn.Module):
 
         return out2.contiguous().view(x.shape[0], -1, self.num_classes)
 
+class BoxSampler(nn.Module):
+    def __init__(self,training):
+        super(BoxSampler, self).__init__()
+	self.training = training
+
+    def forward(inputs):
+	if self.training:
+		regression,gt_boxes = inputs
+	else:
+		regression = inputs
+
+
+	
 class ResNet(nn.Module):
 
     def __init__(self, num_classes, block, layers):
@@ -189,7 +203,7 @@ class ResNet(nn.Module):
         self.clipBoxes = ClipBoxes()
         
         self.focalLoss = losses.FocalLoss()
-                
+        
         for m in self.modules():
             if isinstance(m, nn.Conv2d):
                 n = m.kernel_size[0] * m.kernel_size[1] * m.out_channels
