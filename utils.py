@@ -91,7 +91,7 @@ class BBoxTransform(nn.Module):
             self.std = std
 
     def forward(self, boxes, deltas):
-	transcriptions = deltas[...,4]
+	transcriptions = deltas[...,4:]
         widths  = boxes[:, :, 2] - boxes[:, :, 0]
         heights = boxes[:, :, 3] - boxes[:, :, 1]
         ctr_x   = boxes[:, :, 0] + 0.5 * widths
@@ -112,8 +112,11 @@ class BBoxTransform(nn.Module):
         pred_boxes_x2 = pred_ctr_x + 0.5 * pred_w
         pred_boxes_y2 = pred_ctr_y + 0.5 * pred_h
 
-        pred_boxes = torch.stack([pred_boxes_x1, pred_boxes_y1, pred_boxes_x2, pred_boxes_y2,transcriptions], dim=2)
-
+        pred_boxes = torch.stack([pred_boxes_x1, pred_boxes_y1, pred_boxes_x2, pred_boxes_y2], dim=2)
+	print "pred boxes shape",pred_boxes.shape
+	print "transcripts shape",transcriptions.shape
+	pred_boxes = torch.cat([pred_boxes,transcriptions],dim = -1)
+	print "pred boxes shape with transcripts",pred_boxes.shape
         return pred_boxes
 
 
