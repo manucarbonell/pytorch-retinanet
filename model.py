@@ -75,7 +75,8 @@ class PyramidFeatures(nn.Module):
 class RegressionModel(nn.Module):
     def __init__(self, num_features_in, num_anchors=9, feature_size=256):
         super(RegressionModel, self).__init__()
-        
+        self.alphabet_len = 27
+	self.max_seq_len = 1
         self.conv1 = nn.Conv2d(num_features_in, feature_size, kernel_size=3, padding=1)
         self.act1 = nn.ReLU()
 
@@ -163,15 +164,40 @@ class BoxSampler(nn.Module):
     def __init__(self,training):
         super(BoxSampler, self).__init__()
 	self.training = training
+        self.regressBoxes = BBoxTransform()
+	self.clipBoxes = ClipBoxes()
 
-    def forward(inputs):
-	if self.training:
-		regression,gt_boxes = inputs
-	else:
-		regression = inputs
-
-
+    def forward(self,img_batch,anchors,regression,classification):
+	#if self.training:
+	#	regression,gt_boxes = inputs
+	#else:
+	#	regression = inputs
 	
+	############## WHATS DONE AT TEST TIME IN Retinanet 
+	transformed_anchors = self.regressBoxes(anchors, regression)
+        transformed_anchors = self.clipBoxes(transformed_anchors, img_batch)
+
+        scores = torch.max(classification, dim=2, keepdim=True)[0]
+	
+        scores_over_thresh = (scores>0.5)[0, :, 0]
+	
+        if scores_over_thresh.sum() == 0:
+	        # no boxes to NMS, just return
+                return torch.zeros(0, 4)
+        classification = classification[:, scores_over_thresh, :]
+        transformed_anchors = transformed_anchors[:, scores_over_thresh, :]
+        scores = scores[:, scores_over_thresh, :]
+	
+        anchors_nms_idx = nms(torch.cat([transformed_anchors, scores], dim=2)[0, :, :], 0.5)
+	
+        nms_scores, nms_class = classification[0, anchors_nms_idx, :].max(dim=1)
+
+        #return [nms_scores, nms_class, transformed_anchors[0, anchors_nms_idx, :]]
+	#scores, classification, transformed_anchors = retinanet(data['img'].cuda().float())
+	#idxs = np.where(scores>0.5)
+	#bbox = transformed_anchors[idxs[0][j], :]'''
+	return transformed_anchors
+
 class ResNet(nn.Module):
 
     def __init__(self, num_classes, block, layers):
@@ -195,7 +221,7 @@ class ResNet(nn.Module):
 
         self.regressionModel = RegressionModel(256)
         self.classificationModel = ClassificationModel(256, num_classes=num_classes)
-
+	self.boxSampler = BoxSampler('train')
         self.anchors = Anchors()
 
         self.regressBoxes = BBoxTransform()
@@ -269,6 +295,8 @@ class ResNet(nn.Module):
         classification = torch.cat([self.classificationModel(feature) for feature in features], dim=1)
 
         anchors = self.anchors(img_batch)
+	transformed_anchors = self.boxSampler(img_batch,anchors,regression,classification)
+	print ("box Sampler out shape",transformed_anchors.shape)
 
         if self.training:
             return self.focalLoss(classification, regression, anchors, annotations)
