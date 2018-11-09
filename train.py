@@ -25,6 +25,8 @@ from torch.utils.data import Dataset, DataLoader
 import coco_eval
 import csv_eval
 
+from warpctc_pytorch import CTCLoss
+
 assert torch.__version__.split('.')[1] == '4'
 
 print('CUDA available: {}'.format(torch.cuda.is_available()))
@@ -109,12 +111,11 @@ def main(args=None):
 	scheduler = optim.lr_scheduler.ReduceLROnPlateau(optimizer, patience=3, verbose=True)
 
 	loss_hist = collections.deque(maxlen=500)
-
+	ctc = CTCLoss()
 	retinanet.train()
 	retinanet.module.freeze_bn()
 
 	print('Num training images: {}'.format(len(dataset_train)))
-
 	for epoch_num in range(parser.epochs):
 
 		retinanet.train()
@@ -126,7 +127,7 @@ def main(args=None):
 			try:
 				optimizer.zero_grad()
 
-				classification_loss, regression_loss = retinanet([data['img'].cuda().float(), data['annot']])
+				classification_loss, regression_loss = retinanet([data['img'].cuda().float(), data['annot'],ctc])
 
 				classification_loss = classification_loss.mean()
 				regression_loss = regression_loss.mean()
