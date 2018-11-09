@@ -19,6 +19,7 @@ import skimage
 
 from PIL import Image
 
+import re
 
 
 class CSVDataset(Dataset):
@@ -35,6 +36,7 @@ class CSVDataset(Dataset):
         self.class_list = class_list
         self.transform = transform
 	self.max_label_len = 20
+	self.alphabet = "abcdefghijklmnopqrstuvwxyz "
         # parse the provided class file
         try:
             with self._open_for_csv(self.class_list) as file:
@@ -146,6 +148,7 @@ class CSVDataset(Dataset):
             annotation[0, 3] = y2
 
             annotation[0, 4]  = self.name_to_label(a['class'])
+	    annotation[0,5:]  = self.string_to_ids(a['transcription'])
             annotations       = np.append(annotations, annotation, axis=0)
 
         return annotations
@@ -156,7 +159,7 @@ class CSVDataset(Dataset):
             line += 1
 
             try:
-                img_file, x1, y1, x2, y2, class_name = row[:6]
+                img_file, x1, y1, x2, y2, class_name,transcription = row[:7]
             except ValueError:
                 raise_from(ValueError('line {}: format should be \'img_file,x1,y1,x2,y2,class_name\' or \'img_file,,,,,\''.format(line)), None)
 
@@ -182,12 +185,22 @@ class CSVDataset(Dataset):
             if class_name not in classes:
                 raise ValueError('line {}: unknown class name: \'{}\' (classes: {})'.format(line, class_name, classes))
 
-            result[img_file].append({'x1': x1, 'x2': x2, 'y1': y1, 'y2': y2, 'class': class_name})
+            result[img_file].append({'x1': x1, 'x2': x2, 'y1': y1, 'y2': y2, 'class': class_name,'transcription': transcription})
         return result
 
     def name_to_label(self, name):
         return self.classes[name]
 
+    def string_to_ids(self,transcription):
+	transcription = transcription.lower()
+
+	transcription = re.sub('[^0-9a-zA-Z]+', '*', transcription)
+
+	
+	ids = np.full(self.max_label_len,len(self.alphabet))	
+	for i in range(len(transcription)):
+		ids[i] = self.alphabet.index(transcription[i])
+	return ids
     def label_to_name(self, label):
         return self.labels[label]
 
