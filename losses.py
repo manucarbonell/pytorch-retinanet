@@ -30,7 +30,7 @@ class FocalLoss(nn.Module):
         batch_size = classifications.shape[0]
         classification_losses = []
         regression_losses = []
-
+	regressions = regressions[...,:4]
         anchor = anchors[0, :, :]
 
         anchor_widths  = anchor[:, 2] - anchor[:, 0]
