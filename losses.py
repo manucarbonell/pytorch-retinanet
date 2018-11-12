@@ -21,10 +21,40 @@ def calc_iou(a, b):
 
     return IoU
 
+
+class ctc(nn.Module):
+    def forward(self,transformed_anchors,annotations,criterion):
+
+		if transformed_anchors.shape[0]<1:
+			
+			return torch.tensor(0).float().cuda()
+		else:
+
+			
+			'''
+			#pdb.set_trace()	
+			#Get text annot - pred correspondance
+			IoU = calc_iou(transformed_anchors[0,:,:4],annotations[0,:,:4])
+			IoU_max, IoU_argmax = torch.max(IoU, dim=1) # num_anchors x 1
+			assigned_annot = annotations[0,IoU_argmax,:]
+			transcript_preds = transformed_anchors[0,0,4:]
+			transcript_preds = transcript_preds.view(1,2,27).transpose(0,1).contiguous()
+			transcript_labels = assigned_annot[0,5:7].int()
+			transcript_labels = transcript_labels.view(2,)
+			label_lengths = torch.IntTensor(())
+			probs_sizes = torch.IntTensor(())
+			label_lengths = label_lengths.new_full((transcript_preds.shape[1],),2)
+			probs_sizes = probs_sizes.new_full((transcript_preds.shape[1],),2)
+			ctc_loss = criterion(transcript_preds,transcript_labels.cpu(),label_lengths,probs_sizes)
+			ctc_loss = ctc_loss.cuda()
+			#print "assigned annot",assigned_annot
+			#IoU argmax contains indices of the corresponding annotation for each anchor prediction
+		return ctc_loss'''
+
 class FocalLoss(nn.Module):
     #def __init__(self):
 
-    def forward(self, classifications, regressions, anchors, annotations):
+    def forward(self, classifications, regressions, anchors, annotations,criterion):
         alpha = 0.25
         gamma = 2.0
         batch_size = classifications.shape[0]
@@ -45,7 +75,7 @@ class FocalLoss(nn.Module):
 
             bbox_annotation = annotations[j, :, :]
             bbox_annotation = bbox_annotation[bbox_annotation[:, 4] != -1]
-
+	    
             if bbox_annotation.shape[0] == 0:
                 regression_losses.append(torch.tensor(0).float().cuda())
                 classification_losses.append(torch.tensor(0).float().cuda())
@@ -92,7 +122,6 @@ class FocalLoss(nn.Module):
             classification_losses.append(cls_loss.sum()/torch.clamp(num_positive_anchors.float(), min=1.0))
 
             # compute the loss for regression
-
             if positive_indices.sum() > 0:
                 assigned_annotations = assigned_annotations[positive_indices, :]
 
@@ -133,7 +162,6 @@ class FocalLoss(nn.Module):
                 regression_losses.append(regression_loss.mean())
             else:
                 regression_losses.append(torch.tensor(0).float().cuda())
-
         return torch.stack(classification_losses).mean(dim=0, keepdim=True), torch.stack(regression_losses).mean(dim=0, keepdim=True)
 
     

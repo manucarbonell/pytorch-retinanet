@@ -127,12 +127,12 @@ def main(args=None):
 			try:
 				optimizer.zero_grad()
 
-				classification_loss, regression_loss = retinanet([data['img'].cuda().float(), data['annot'],ctc])
+				(classification_loss, regression_loss) = retinanet([data['img'].cuda().float(), data['annot'],ctc])
 
 				classification_loss = classification_loss.mean()
 				regression_loss = regression_loss.mean()
 
-				loss = classification_loss + regression_loss
+				loss = classification_loss + regression_loss 
 				
 				if bool(loss == 0):
 					continue
@@ -147,7 +147,7 @@ def main(args=None):
 
 				epoch_loss.append(float(loss))
 
-				print('Epoch: {} | Iteration: {} | Classification loss: {:1.5f} | Regression loss: {:1.5f} | Running loss: {:1.5f}'.format(epoch_num, iter_num, float(classification_loss), float(regression_loss), np.mean(loss_hist)))
+				print('Epoch: {} | Iteration: {} | Classification loss: {:1.5f} | Regression loss: {:1.5f} | Running loss: {:1.5f}'.format(epoch_num, iter_num, float(classification_loss), float(regression_loss),np.mean(loss_hist)))
 				
 				del classification_loss
 				del regression_loss

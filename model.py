@@ -6,6 +6,7 @@ import torch.utils.model_zoo as model_zoo
 from utils import BasicBlock, Bottleneck, BBoxTransform, ClipBoxes
 from anchors import Anchors
 import losses
+from losses import calc_iou
 from lib.nms.pth_nms import pth_nms
 
 def nms(dets, thresh):
@@ -75,7 +76,7 @@ class RegressionModel(nn.Module):
     def __init__(self, num_features_in, num_anchors=9, feature_size=256):
         super(RegressionModel, self).__init__()
         self.alphabet_len = 27
-	self.max_seq_len = 1
+	self.max_seq_len = 2
         self.conv1 = nn.Conv2d(num_features_in, feature_size, kernel_size=3, padding=1)
         self.act1 = nn.ReLU()
 
@@ -167,12 +168,7 @@ class BoxSampler(nn.Module):
 	self.clipBoxes = ClipBoxes()
 
     def forward(self,img_batch,anchors,regression,classification):
-	#if self.training:
-	#	regression,gt_boxes = inputs
-	#else:
-	#	regression = inputs
 	
-	############## WHATS DONE AT TEST TIME IN Retinanet 
 	transformed_anchors = self.regressBoxes(anchors, regression)
         transformed_anchors = self.clipBoxes(transformed_anchors, img_batch)
 
@@ -189,12 +185,6 @@ class BoxSampler(nn.Module):
 	
         anchors_nms_idx = nms(torch.cat([transformed_anchors, scores], dim=2)[0, :, :], 0.5)
 	
-        nms_scores, nms_class = classification[0, anchors_nms_idx, :].max(dim=1)
-
-        #return [nms_scores, nms_class, transformed_anchors[0, anchors_nms_idx, :]]
-	#scores, classification, transformed_anchors = retinanet(data['img'].cuda().float())
-	#idxs = np.where(scores>0.5)
-	#bbox = transformed_anchors[idxs[0][j], :]'''
 	return transformed_anchors
 
 class ResNet(nn.Module):
@@ -205,6 +195,7 @@ class ResNet(nn.Module):
         self.conv1 = nn.Conv2d(3, 64, kernel_size=7, stride=2, padding=3, bias=False)
         self.bn1 = nn.BatchNorm2d(64)
         self.relu = nn.ReLU(inplace=True)
+	self.max_seq_len = 2
         self.maxpool = nn.MaxPool2d(kernel_size=3, stride=2, padding=1)
         self.layer1 = self._make_layer(block, 64, layers[0])
         self.layer2 = self._make_layer(block, 128, layers[1], stride=2)
@@ -228,7 +219,9 @@ class ResNet(nn.Module):
         self.clipBoxes = ClipBoxes()
         
         self.focalLoss = losses.FocalLoss()	
-        for m in self.modules():
+	self.ctc = losses.ctc()
+        
+	for m in self.modules():
             if isinstance(m, nn.Conv2d):
                 n = m.kernel_size[0] * m.kernel_size[1] * m.out_channels
                 m.weight.data.normal_(0, math.sqrt(2. / n))
@@ -294,10 +287,13 @@ class ResNet(nn.Module):
 
         anchors = self.anchors(img_batch)
 	transformed_anchors = self.boxSampler(img_batch,anchors,regression,classification)
-	print ("box Sampler out shape",transformed_anchors.shape)
+	
+	#print ("box Sampler out shape",transformed_anchors.shape)
 
         if self.training:
-            return self.focalLoss(classification, regression, anchors, annotations)
+	    ctc_loss = self.ctc(transformed_anchors,annotations,criterion)
+            focal_loss= self.focalLoss(classification, regression, anchors, annotations,criterion)
+	    return focal_loss
         else:
             transformed_anchors = self.regressBoxes(anchors, regression)
 	    transformed_anchors = transformed_anchors[...,:4]
