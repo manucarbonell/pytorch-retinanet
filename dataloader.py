@@ -103,7 +103,6 @@ class CSVDataset(Dataset):
         return len(self.image_names)
 
     def __getitem__(self, idx):
-
         img = self.load_image(idx)
         annot = self.load_annotations(idx)
         sample = {'img': img, 'annot': annot}
@@ -198,9 +197,11 @@ class CSVDataset(Dataset):
 
 	
 	ids = np.full(self.max_label_len,len(self.alphabet))	
+	#ids = np.zeros(self.max_label_len)
 	for i in range(len(transcription)):
 		ids[i] = self.alphabet.index(transcription[i])
 	return ids
+
     def label_to_name(self, label):
         return self.labels[label]
 

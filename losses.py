@@ -1,7 +1,7 @@
 import numpy as np
 import torch
 import torch.nn as nn
-
+import pdb
 def calc_iou(a, b):
     area = (b[:, 2] - b[:, 0]) * (b[:, 3] - b[:, 1])
 
@@ -22,45 +22,18 @@ def calc_iou(a, b):
     return IoU
 
 
-class ctc(nn.Module):
-    def forward(self,transformed_anchors,annotations,criterion):
-
-		if transformed_anchors.shape[0]<1:
-			
-			return torch.tensor(0).float().cuda()
-		else:
-
-			
-			'''
-			#pdb.set_trace()	
-			#Get text annot - pred correspondance
-			IoU = calc_iou(transformed_anchors[0,:,:4],annotations[0,:,:4])
-			IoU_max, IoU_argmax = torch.max(IoU, dim=1) # num_anchors x 1
-			assigned_annot = annotations[0,IoU_argmax,:]
-			transcript_preds = transformed_anchors[0,0,4:]
-			transcript_preds = transcript_preds.view(1,2,27).transpose(0,1).contiguous()
-			transcript_labels = assigned_annot[0,5:7].int()
-			transcript_labels = transcript_labels.view(2,)
-			label_lengths = torch.IntTensor(())
-			probs_sizes = torch.IntTensor(())
-			label_lengths = label_lengths.new_full((transcript_preds.shape[1],),2)
-			probs_sizes = probs_sizes.new_full((transcript_preds.shape[1],),2)
-			ctc_loss = criterion(transcript_preds,transcript_labels.cpu(),label_lengths,probs_sizes)
-			ctc_loss = ctc_loss.cuda()
-			#print "assigned annot",assigned_annot
-			#IoU argmax contains indices of the corresponding annotation for each anchor prediction
-		return ctc_loss'''
-
 class FocalLoss(nn.Module):
     #def __init__(self):
 
     def forward(self, classifications, regressions, anchors, annotations,criterion):
         alpha = 0.25
         gamma = 2.0
+	alphabet_len = 27
+	max_seq_len = 2
         batch_size = classifications.shape[0]
         classification_losses = []
         regression_losses = []
-	regressions = regressions[...,:4]
+	#regressions = regressions[...,:4]
         anchor = anchors[0, :, :]
 
         anchor_widths  = anchor[:, 2] - anchor[:, 0]
@@ -152,7 +125,7 @@ class FocalLoss(nn.Module):
 
                 negative_indices = 1 - positive_indices
 
-                regression_diff = torch.abs(targets - regression[positive_indices, :])
+                regression_diff = torch.abs(targets - regression[positive_indices, :4])
 
                 regression_loss = torch.where(
                     torch.le(regression_diff, 1.0 / 9.0),
@@ -160,8 +133,32 @@ class FocalLoss(nn.Module):
                     regression_diff - 0.5 / 9.0
                 )
                 regression_losses.append(regression_loss.mean())
+
+
+
+	        # compute ctc loss
+		transcript_preds = regressions[j,positive_indices,4:]
+		transcript_preds = transcript_preds.view(-1,max_seq_len,alphabet_len).transpose(0,1).contiguous()
+		#transcript_preds = torch.clamp(transcript_preds,1e-4, 1.0 - 1e-4)
+		transcript_labels = assigned_annotations[:,5:7].int().cpu()
+		transcript_labels = torch.clamp(transcript_labels,1,alphabet_len)
+		transcript_labels = transcript_labels.view(transcript_labels.numel())
+		label_lengths = torch.IntTensor(())
+		probs_sizes = torch.IntTensor(())
+		
+		label_lengths = label_lengths.new_full((transcript_preds.shape[1],),max_seq_len)
+		probs_sizes = probs_sizes.new_full((transcript_preds.shape[1],),max_seq_len)
+		
+		transcript_preds.requires_grad_(True)
+		#print "CTC input shapes (probs,labels,label lens,prob sizes):",transcript_preds.shape,transcript_labels.shape,label_lengths.shape,probs_sizes.shape
+		#print transcript_preds
+		ctc_loss = criterion(transcript_preds,transcript_labels,label_lengths,probs_sizes)
+		ctc_loss = ctc_loss.float()
+		ctc_loss = (ctc_loss/label_lengths.shape[0]).cuda()
+		#print "CTC LOSS Value",ctc_loss
+		#print "class loss",torch.stack(classification_losses).mean(dim=0, keepdim=True)
             else:
                 regression_losses.append(torch.tensor(0).float().cuda())
-        return torch.stack(classification_losses).mean(dim=0, keepdim=True), torch.stack(regression_losses).mean(dim=0, keepdim=True)
+        return torch.stack(classification_losses).mean(dim=0, keepdim=True), torch.stack(regression_losses).mean(dim=0, keepdim=True),ctc_loss
 
     

@@ -1,3 +1,4 @@
+import pdb
 import torch.nn as nn
 import torch
 import math
@@ -76,7 +77,7 @@ class RegressionModel(nn.Module):
     def __init__(self, num_features_in, num_anchors=9, feature_size=256):
         super(RegressionModel, self).__init__()
         self.alphabet_len = 27
-	self.max_seq_len = 2
+	self.max_seq_len =2
         self.conv1 = nn.Conv2d(num_features_in, feature_size, kernel_size=3, padding=1)
         self.act1 = nn.ReLU()
 
@@ -89,6 +90,7 @@ class RegressionModel(nn.Module):
         self.conv4 = nn.Conv2d(feature_size, feature_size, kernel_size=3, padding=1)
         self.act4 = nn.ReLU()
 
+        #self.output = nn.Conv2d(feature_size, num_anchors*(4), kernel_size=3, padding=1)
         self.output = nn.Conv2d(feature_size, num_anchors*(4+self.alphabet_len*self.max_seq_len), kernel_size=3, padding=1)
 
     def forward(self, x):
@@ -110,7 +112,9 @@ class RegressionModel(nn.Module):
         # out is B x C x W x H, with C = 4*num_anchors
         out = out.permute(0, 2, 3, 1)
 
+        #return out.contiguous().view(out.shape[0], -1, 4)
         return out.contiguous().view(out.shape[0], -1, 4+self.max_seq_len*self.alphabet_len)
+
 
 class ClassificationModel(nn.Module):
     def __init__(self, num_features_in, num_anchors=9, num_classes=80, prior=0.01, feature_size=256):
@@ -211,7 +215,7 @@ class ResNet(nn.Module):
 
         self.regressionModel = RegressionModel(256)
         self.classificationModel = ClassificationModel(256, num_classes=num_classes)
-	self.boxSampler = BoxSampler('train')
+	#self.boxSampler = BoxSampler('train')
         self.anchors = Anchors()
 
         self.regressBoxes = BBoxTransform()
@@ -219,7 +223,7 @@ class ResNet(nn.Module):
         self.clipBoxes = ClipBoxes()
         
         self.focalLoss = losses.FocalLoss()	
-	self.ctc = losses.ctc()
+	#self.ctc = losses.ctc()
         
 	for m in self.modules():
             if isinstance(m, nn.Conv2d):
@@ -231,6 +235,7 @@ class ResNet(nn.Module):
 
         prior = 0.01
         
+
         self.classificationModel.output.weight.data.fill_(0)
         self.classificationModel.output.bias.data.fill_(-math.log((1.0-prior)/prior))
 
@@ -280,26 +285,27 @@ class ResNet(nn.Module):
         x4 = self.layer4(x3)
 
         features = self.fpn([x2, x3, x4])
-
         regression = torch.cat([self.regressionModel(feature) for feature in features], dim=1)
-
         classification = torch.cat([self.classificationModel(feature) for feature in features], dim=1)
 
+
         anchors = self.anchors(img_batch)
-	transformed_anchors = self.boxSampler(img_batch,anchors,regression,classification)
+	#transformed_anchors = self.boxSampler(img_batch,anchors,regression,classification)
 	
 	#print ("box Sampler out shape",transformed_anchors.shape)
 
         if self.training:
-	    ctc_loss = self.ctc(transformed_anchors,annotations,criterion)
+	    #ctc_loss = self.ctc(transformed_anchors,annotations,criterion)
             focal_loss= self.focalLoss(classification, regression, anchors, annotations,criterion)
 	    return focal_loss
         else:
             transformed_anchors = self.regressBoxes(anchors, regression)
-	    transformed_anchors = transformed_anchors[...,:4]
+	    #transformed_anchors = transformed_anchors[...,:4]
             transformed_anchors = self.clipBoxes(transformed_anchors, img_batch)
 
-            scores = torch.max(classification, dim=2, keepdim=True)[0]
+            #scores = torch.max(classification, dim=2, keepdim=True)[0]
+
+            scores = torch.max(regression[...,4:], dim=-1, keepdim=True)[0]
 
             scores_over_thresh = (scores>0.05)[0, :, 0]
 

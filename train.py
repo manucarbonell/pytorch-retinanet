@@ -76,7 +76,7 @@ def main(args=None):
 	else:
 		raise ValueError('Dataset type not understood (must be csv or coco), exiting.')
 
-	sampler = AspectRatioBasedSampler(dataset_train, batch_size=1, drop_last=False)
+	sampler = AspectRatioBasedSampler(dataset_train, batch_size=1,drop_last=False)
 	dataloader_train = DataLoader(dataset_train, num_workers=3, collate_fn=collater, batch_sampler=sampler)
 
 	if dataset_val is not None:
@@ -103,10 +103,13 @@ def main(args=None):
 		retinanet = retinanet.cuda()
 	
 	retinanet = torch.nn.DataParallel(retinanet).cuda()
-
+	
+	#retinanet = torch.load('../Documents/TRAINED_MODELS/pytorch-retinanet/esposallescsv_retinanet_99.pt')
+	#print "LOADED pretrained MODEL\n\n"
+	
 	retinanet.training = True
 
-	optimizer = optim.Adam(retinanet.parameters(), lr=1e-5)
+	optimizer = optim.Adam(retinanet.parameters(), lr=1e-4)
 
 	scheduler = optim.lr_scheduler.ReduceLROnPlateau(optimizer, patience=3, verbose=True)
 
@@ -127,13 +130,15 @@ def main(args=None):
 			try:
 				optimizer.zero_grad()
 
-				(classification_loss, regression_loss) = retinanet([data['img'].cuda().float(), data['annot'],ctc])
+				(classification_loss, regression_loss,ctc_loss) = retinanet([data['img'].cuda().float(), data['annot'],ctc])
 
 				classification_loss = classification_loss.mean()
-				regression_loss = regression_loss.mean()
-
-				loss = classification_loss + regression_loss 
-				
+				regression_loss = regression_loss.mean()	
+				'''if regression_loss<0.5:		
+					loss = classification_loss + regression_loss/2.+ctc_loss/4.
+				else:
+					loss = classification_loss +regression_loss'''
+				loss = classification_loss + regression_loss+ctc_loss
 				if bool(loss == 0):
 					continue
 
@@ -147,7 +152,7 @@ def main(args=None):
 
 				epoch_loss.append(float(loss))
 
-				print('Epoch: {} | Iteration: {} | Classification loss: {:1.5f} | Regression loss: {:1.5f} | Running loss: {:1.5f}'.format(epoch_num, iter_num, float(classification_loss), float(regression_loss),np.mean(loss_hist)))
+				print('Epoch: {} | Iteration: {} | Classification loss: {:1.5f} | Regression loss: {:1.5f} | CTC loss: {:1.5f} | Running loss: {:1.5f}'.format(epoch_num, iter_num, float(classification_loss), float(regression_loss),float(ctc_loss),np.mean(loss_hist)))
 				
 				del classification_loss
 				del regression_loss
@@ -169,8 +174,10 @@ def main(args=None):
 
 		
 		scheduler.step(np.mean(epoch_loss))	
-
-		torch.save(retinanet.module, '{}_retinanet_{}.pt'.format(parser.dataset, epoch_num))
+		
+		dataset_name = parser.csv_train.split("/")[-2]
+		
+		torch.save(retinanet.module, dataset_name+'{}_retinanet_{}.pt'.format(parser.dataset, epoch_num))
 
 	retinanet.eval()
 
