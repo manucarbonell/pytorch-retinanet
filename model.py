@@ -303,9 +303,9 @@ class ResNet(nn.Module):
 	    #transformed_anchors = transformed_anchors[...,:4]
             transformed_anchors = self.clipBoxes(transformed_anchors, img_batch)
 
-            #scores = torch.max(classification, dim=2, keepdim=True)[0]
+            scores = torch.max(classification, dim=2, keepdim=True)[0]
 
-            scores = torch.max(regression[...,4:], dim=-1, keepdim=True)[0]
+            #scores = torch.max(regression[...,4:], dim=-1, keepdim=True)[0]
 
             scores_over_thresh = (scores>0.05)[0, :, 0]
 
