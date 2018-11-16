@@ -29,13 +29,13 @@ class FocalLoss(nn.Module):
         alpha = 0.25
         gamma = 2.0
 	alphabet_len = 27
-	max_seq_len = 2
+	max_seq_len = 20
+	max_label_len = 10
         batch_size = classifications.shape[0]
         classification_losses = []
         regression_losses = []
 	#regressions = regressions[...,:4]
         anchor = anchors[0, :, :]
-
         anchor_widths  = anchor[:, 2] - anchor[:, 0]
         anchor_heights = anchor[:, 3] - anchor[:, 1]
         anchor_ctr_x   = anchor[:, 0] + 0.5 * anchor_widths
@@ -43,7 +43,7 @@ class FocalLoss(nn.Module):
 
         for j in range(batch_size):
 
-            classification = classifications[j, :, :]
+            classification = classifications[j, :, :2]
             regression = regressions[j, :, :]
 
             bbox_annotation = annotations[j, :, :]
@@ -62,7 +62,6 @@ class FocalLoss(nn.Module):
             IoU_max, IoU_argmax = torch.max(IoU, dim=1) # num_anchors x 1
 
             #import pdb
-            #pdb.set_trace()
 
             # compute the loss for classification
             targets = torch.ones(classification.shape) * -1
@@ -78,7 +77,7 @@ class FocalLoss(nn.Module):
 
             targets[positive_indices, :] = 0
             targets[positive_indices, assigned_annotations[positive_indices, 4].long()] = 1
-
+	
             alpha_factor = torch.ones(targets.shape).cuda() * alpha
 
             alpha_factor = torch.where(torch.eq(targets, 1.), alpha_factor, 1. - alpha_factor)
@@ -134,24 +133,25 @@ class FocalLoss(nn.Module):
                 )
                 regression_losses.append(regression_loss.mean())
 
-
-
-	        # compute ctc loss
-		transcript_preds = regressions[j,positive_indices,4:]
+		# compute ctc loss
+		transcript_preds = classifications[j,positive_indices,1:]
+	
 		transcript_preds = transcript_preds.view(-1,max_seq_len,alphabet_len).transpose(0,1).contiguous()
 		#transcript_preds = torch.clamp(transcript_preds,1e-4, 1.0 - 1e-4)
-		transcript_labels = assigned_annotations[:,5:7].int().cpu()
+		transcript_labels = assigned_annotations[:,5:(5+max_label_len)].int().cpu()
 		transcript_labels = torch.clamp(transcript_labels,1,alphabet_len)
+
 		transcript_labels = transcript_labels.view(transcript_labels.numel())
+
 		label_lengths = torch.IntTensor(())
 		probs_sizes = torch.IntTensor(())
 		
-		label_lengths = label_lengths.new_full((transcript_preds.shape[1],),max_seq_len)
+		label_lengths = label_lengths.new_full((transcript_preds.shape[1],),max_label_len)
+
 		probs_sizes = probs_sizes.new_full((transcript_preds.shape[1],),max_seq_len)
 		
 		transcript_preds.requires_grad_(True)
-		#print "CTC input shapes (probs,labels,label lens,prob sizes):",transcript_preds.shape,transcript_labels.shape,label_lengths.shape,probs_sizes.shape
-		#print transcript_preds
+		print "CTC input shapes (probs,labels,label lens,prob sizes):",transcript_preds.shape,transcript_labels.shape,label_lengths.shape,probs_sizes.shape
 		ctc_loss = criterion(transcript_preds,transcript_labels,label_lengths,probs_sizes)
 		ctc_loss = ctc_loss.float()
 		ctc_loss = (ctc_loss/label_lengths.shape[0]).cuda()
