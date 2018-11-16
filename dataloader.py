@@ -196,10 +196,10 @@ class CSVDataset(Dataset):
 	transcription = re.sub('[^0-9a-zA-Z]+', '*', transcription)
 
 	
-	ids = np.full(self.max_label_len,len(self.alphabet))	
-	#ids = np.zeros(self.max_label_len)
+	#ids = np.full(self.max_label_len,len(self.alphabet))	
+	ids = np.zeros(self.max_label_len)
 	for i in range(len(transcription)):
-		ids[i] = self.alphabet.index(transcription[i])
+		ids[i] = self.alphabet.index(transcription[i])+1
 	return ids
 
     def label_to_name(self, label):

@@ -29,7 +29,7 @@ class FocalLoss(nn.Module):
         alpha = 0.25
         gamma = 2.0
 	alphabet_len = 27
-	max_seq_len = 2
+	max_seq_len = 5
         batch_size = classifications.shape[0]
         classification_losses = []
         regression_losses = []
@@ -139,8 +139,7 @@ class FocalLoss(nn.Module):
 	        # compute ctc loss
 		transcript_preds = regressions[j,positive_indices,4:]
 		transcript_preds = transcript_preds.view(-1,max_seq_len,alphabet_len).transpose(0,1).contiguous()
-		#transcript_preds = torch.clamp(transcript_preds,1e-4, 1.0 - 1e-4)
-		transcript_labels = assigned_annotations[:,5:7].int().cpu()
+		transcript_labels = assigned_annotations[:,5:(5+max_seq_len)].int().cpu()
 		transcript_labels = torch.clamp(transcript_labels,1,alphabet_len)
 		transcript_labels = transcript_labels.view(transcript_labels.numel())
 		label_lengths = torch.IntTensor(())
