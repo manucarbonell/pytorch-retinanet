@@ -30,6 +30,7 @@ class FocalLoss(nn.Module):
         gamma = 2.0
 	alphabet_len = 27
 	max_seq_len = 5
+	max_label_len = max_seq_len
         batch_size = classifications.shape[0]
         classification_losses = []
         regression_losses = []
@@ -62,7 +63,6 @@ class FocalLoss(nn.Module):
             IoU_max, IoU_argmax = torch.max(IoU, dim=1) # num_anchors x 1
 
             #import pdb
-            #pdb.set_trace()
 
             # compute the loss for classification
             targets = torch.ones(classification.shape) * -1
@@ -137,21 +137,23 @@ class FocalLoss(nn.Module):
 
 
 	        # compute ctc loss
+		#pdb.set_trace()
 		transcript_preds = regressions[j,positive_indices,4:]
 		transcript_preds = transcript_preds.view(-1,max_seq_len,alphabet_len).transpose(0,1).contiguous()
-		transcript_labels = assigned_annotations[:,5:(5+max_seq_len)].int().cpu()
+		transcript_labels = assigned_annotations[:,5:(5+max_label_len)].int().cpu()
 		transcript_labels = torch.clamp(transcript_labels,1,alphabet_len)
+		label_lengths = torch.sum(torch.le(transcript_labels,25),dim=1).int()
 		transcript_labels = transcript_labels.view(transcript_labels.numel())
-		label_lengths = torch.IntTensor(())
+		#label_lengths = torch.IntTensor(())
 		probs_sizes = torch.IntTensor(())
-		
-		label_lengths = label_lengths.new_full((transcript_preds.shape[1],),max_seq_len)
+				
+		#label_lengths = label_lengths.new_full((transcript_preds.shape[1],),max_label_len)
 		probs_sizes = probs_sizes.new_full((transcript_preds.shape[1],),max_seq_len)
-		
 		transcript_preds.requires_grad_(True)
 		#print "CTC input shapes (probs,labels,label lens,prob sizes):",transcript_preds.shape,transcript_labels.shape,label_lengths.shape,probs_sizes.shape
 		#print transcript_preds
 		ctc_loss = criterion(transcript_preds,transcript_labels,label_lengths,probs_sizes)
+		#ctc_loss = criterion(transcript_preds,transcript_labels,label_lengths,label_lengths)
 		ctc_loss = ctc_loss.float()
 		ctc_loss = (ctc_loss/label_lengths.shape[0]).cuda()
 		#print "CTC LOSS Value",ctc_loss
