@@ -25,7 +25,7 @@ print('CUDA available: {}'.format(torch.cuda.is_available()))
 def main(args=None):
 	parser = argparse.ArgumentParser(description='Simple training script for training a RetinaNet network.')
 
-	alphabet = "abcdefghijklmnopqrstuvwxyz"
+	alphabet = " abcdefghijklmnopqrstuvwxy z"
 	print len(alphabet)
 
 	parser.add_argument('--dataset', help='Dataset type, must be one of csv or coco.')
@@ -69,6 +69,7 @@ def main(args=None):
 		with torch.no_grad():
 			st = time.time()
 			scores, classification, transformed_anchors = retinanet(data['img'].cuda().float())
+			
 			print('Elapsed time: {}'.format(time.time()-st))
 			idxs = np.where(scores>0.35)
 			img = np.array(255 * unnormalize(data['img'][0, :, :, :])).copy()
@@ -86,17 +87,18 @@ def main(args=None):
 				y1 = int(bbox[1])
 				x2 = int(bbox[2])
 				y2 = int(bbox[3])
-				transcript_1=np.argmax(bbox[4:4+27])
-				transcript_2=np.argmax(bbox[31:])
+				transcripts=[]
+				for k in range(5):
+					transcripts.append(np.argmax(bbox[(4+k*27):((4+(k+1)*27))]))
 				label_name = dataset_val.labels[int(classification[idxs[0][j]])]
-				draw_caption(img, (x1, y1, x2, y2), label_name+alphabet[transcript_1]+alphabet[transcript_2])
+				draw_caption(img, (x1, y1, x2, y2), "".join([alphabet[transcripts[k]] for k in range(5)]))
 
 
 				cv2.rectangle(img, (x1, y1), (x2, y2), color=(0, 0, 255), thickness=2)
 				print(label_name)
 
-			cv2.imshow('img', img)
-			cv2.waitKey(0)
+			cv2.imwrite('pred'+str(idx)+'.jpg', img)
+			#cv2.waitKey(0)
 
 
 
