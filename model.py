@@ -77,7 +77,7 @@ class RegressionModel(nn.Module):
     def __init__(self, num_features_in, num_anchors=9, feature_size=256):
         super(RegressionModel, self).__init__()
         self.alphabet_len = 27
-	self.max_seq_len =5
+	self.max_seq_len =40 # ONE POSITION IS FOR PREDICTING WORD LENGTH
         self.conv1 = nn.Conv2d(num_features_in, feature_size, kernel_size=3, padding=1)
         self.act1 = nn.ReLU()
 
@@ -91,7 +91,7 @@ class RegressionModel(nn.Module):
         self.act4 = nn.ReLU()
 
         #self.output = nn.Conv2d(feature_size, num_anchors*(4), kernel_size=3, padding=1)
-        self.output = nn.Conv2d(feature_size, num_anchors*(4+self.alphabet_len*self.max_seq_len), kernel_size=3, padding=1)
+        self.output = nn.Conv2d(feature_size, num_anchors*(4+self.alphabet_len*self.max_seq_len+1), kernel_size=3, padding=1)
 
     def forward(self, x):
 
@@ -113,7 +113,7 @@ class RegressionModel(nn.Module):
         out = out.permute(0, 2, 3, 1)
 
         #return out.contiguous().view(out.shape[0], -1, 4)
-        return out.contiguous().view(out.shape[0], -1, 4+self.max_seq_len*self.alphabet_len)
+        return out.contiguous().view(out.shape[0], -1, 4+self.max_seq_len*self.alphabet_len+1)
 
 
 class ClassificationModel(nn.Module):
@@ -199,7 +199,6 @@ class ResNet(nn.Module):
         self.conv1 = nn.Conv2d(3, 64, kernel_size=7, stride=2, padding=3, bias=False)
         self.bn1 = nn.BatchNorm2d(64)
         self.relu = nn.ReLU(inplace=True)
-	self.max_seq_len = 2
         self.maxpool = nn.MaxPool2d(kernel_size=3, stride=2, padding=1)
         self.layer1 = self._make_layer(block, 64, layers[0])
         self.layer2 = self._make_layer(block, 128, layers[1], stride=2)
