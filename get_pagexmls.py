@@ -26,7 +26,7 @@ print('CUDA available: {}'.format(torch.cuda.is_available()))
 def labels_to_text(labels,alphabet):
     ret = []
     for c in labels:
-	if c ==0:# len(alphabet):  # CTC Blank
+	if c ==0 or c==len(alphabet):# len(alphabet):  # CTC Blank
 	    ret.append("")
 	else:
 	    ret.append(alphabet[c])
@@ -41,6 +41,21 @@ def labels_to_text(labels,alphabet):
 	
     return ret
 
+
+
+
+def draw_caption(image, box, caption):
+
+	b = np.array(box).astype(int)
+	cv2.putText(image, caption, (b[0], b[1] - 10), cv2.FONT_HERSHEY_PLAIN, 1, (0, 0, 0), 2)
+	cv2.putText(image, caption, (b[0], b[1] - 10), cv2.FONT_HERSHEY_PLAIN, 1, (255, 255, 255), 1)
+
+def get_n_random_colors(n):
+	colors = []
+	for i in range(n):
+		color = (int(255*np.random.random()),int(255*np.random.random()),int(255*np.random.random()))
+		colors.append(color)
+	return colors
 def main(args=None):
 	parser = argparse.ArgumentParser(description='Simple training script for training a RetinaNet network.')
 
@@ -49,6 +64,7 @@ def main(args=None):
 	parser.add_argument('--csv_classes', help='Path to file containing class list (see readme)')
 	parser.add_argument('--csv_val', help='Path to file containing validation annotations (optional, see readme)')
 	parser.add_argument('--score_threshold', help='Score above which boxes are kept',default=0.5)
+	parser.add_argument('--nms_threshold', help='Score above which boxes are kept',default=0.5)
 
 	parser.add_argument('--model', help='Path to model (.pt) file.')
 
@@ -62,13 +78,15 @@ def main(args=None):
 		raise ValueError('Dataset type not understood (must be csv or coco), exiting.')
 
 	sampler_val = AspectRatioBasedSampler(dataset_val, batch_size=1, drop_last=False)
-	dataloader_val = DataLoader(dataset_val, num_workers=1, collate_fn=collater, batch_sampler=sampler_val)
+	dataloader_val = DataLoader(dataset_val, num_workers=0, collate_fn=collater, batch_sampler=sampler_val,shuffle=False)
 
 	retinanet = torch.load(parser.model)
 	score_threshold = float(parser.score_threshold)
+	nms_threshold = float(parser.score_threshold)
 	alphabet = " abcdefghijklmnopqrstuvwxy z"
+	colors = get_n_random_colors(len(dataset_val.labels))
 	use_gpu = True
-
+	
 	if use_gpu:
 		retinanet = retinanet.cuda()
 
@@ -76,28 +94,22 @@ def main(args=None):
 
 	unnormalize = UnNormalizer()
 
-	def draw_caption(image, box, caption):
-
-		b = np.array(box).astype(int)
-		cv2.putText(image, caption, (b[0], b[1] - 10), cv2.FONT_HERSHEY_PLAIN, 1, (0, 0, 0), 2)
-		cv2.putText(image, caption, (b[0], b[1] - 10), cv2.FONT_HERSHEY_PLAIN, 1, (255, 255, 255), 1)
-
 	pxml = pagexml.PageXML()
 	if not os.path.exists('pagexmls'):
 		os.mkdir('pagexmls')
+
 	for idx, data in enumerate(dataloader_val):
-		
 		# Create a new page xml
 		image_name = str(idx)+'.jpg'
 		file ='pagexmls/'+image_name
 		
 		gtxml_name = os.path.join(image_name.split('/')[-1].split('.')[-2])
 
-
+		
 		with torch.no_grad():
 			st = time.time()
-			#scores, classification, transformed_anchors = retinanet(data['img'].cuda().float())
 			im=data['img']
+			
 			im = im.cuda().float()
 			scores, classification, transformed_anchors = retinanet(im)
 			print('Elapsed time: {}'.format(time.time()-st))
@@ -114,32 +126,38 @@ def main(args=None):
 			width = img.shape[1]
 			height = img.shape[0]
 			cv2.imwrite(file,img)
-			'''scale_x = float(original_w)/width
-			scale_y = float(original_h)/height
-			print "scales x y",scale_x,scale_y'''
 
+			conf = pagexml.ptr_double()
 			pxml.newXml('retinanet_dets',image_name,width,height)
+			page = pxml.selectNth("//_:Page",0)
+			reg = pxml.addTextRegion(page)
+			pxml.setCoordsBBox(reg,0, 0, width, height, conf )
+			line = pxml.addTextLine(reg)
+			pxml.setCoordsBBox(line,0, 0, width, height, conf )
+			words = []
+			for k in range(len(dataset_val.labels)):
+				cv2.putText(img,dataset_val.labels[k],(25,25+k*15), cv2.FONT_HERSHEY_PLAIN, 1, colors[k], 2)
+				
 			for j in range(idxs[0].shape[0]):
 
 				# Initialize object for setting confidence values
-				conf = pagexml.ptr_double()
+				box = {}
 				bbox = transformed_anchors[idxs[0][j], :]
 				x1 = int(bbox[0])
 				y1 = int(bbox[1])
 				x2 = int(bbox[2])
 				y2 = int(bbox[3])
 				label_name = dataset_val.labels[int(classification[idxs[0][j]])]
-				draw_caption(img, (x1, y1, x2, y2), label_name)
 
-				cv2.rectangle(img, (x1, y1), (x2, y2), color=(0, 0, 255), thickness=2)
+				cv2.rectangle(img, (x1, y1), (x2, y2), color=colors[int(classification[idxs[0][j]])], thickness=2)
 				
 				# Add a text region to the Page
-				page = pxml.selectNth("//_:Page",0)
-				reg = pxml.addTextRegion(page)
-
+				word = pxml.addWord(line,"ID"+str(j))
+				
 				# Set text region bounding box with a confidence
-				conf.assign(1)
-				pxml.setCoordsBBox( reg,x1, y1, x2-x1, y2-y1, conf )
+				pxml.setCoordsBBox(word,x1, y1, x2-x1, y2-y1, conf )
+				
+				#pxml.setCoordsBBox( reg,x1, y1, x2-x1, y2-y1, conf )
 				
 				transcripts=[]
 				confs=[]
@@ -148,27 +166,45 @@ def main(args=None):
 					transcripts.append(np.argmax(bbox[(5+k*27):((5+(k+1)*27))]))
 				transcripts=np.array(transcripts)
 				transcript=labels_to_text(transcripts,alphabet)
-				pxml.setTextEquiv( reg, "".join([alphabet[transcripts[k]] for k in range(len(transcripts))]), conf )
+				#pxml.setTextEquiv(word, "".join([alphabet[transcripts[k]] for k in range(len(transcripts))]), conf )
+				#pxml.setTextEquiv( reg, "".join([alphabet[transcripts[k]] for k in range(len(transcripts))]), conf )
+				draw_caption(img, (x1, y1, x2, y2), "".join([alphabet[transcripts[k]] for k in range(len(transcripts))]))
 	
 
 				# Set the text for the text region
 				conf.assign(0.9)
 
 				# Add property to text region
-				pxml.setProperty( reg, "key", "value" )
+				pxml.setProperty(word,"category" , label_name )
 
 				# Add a second page with a text region and specific id
 				#page = pxml.addPage("example_image_2.jpg", 300, 300)
 				#reg = pxml.addTextRegion( page, "regA" )
 				#pxml.setCoordsBBox( reg, 15, 12, 76, 128 )
+				words.append(word)
+			words = pxml.select('//_:Word')
+			order, groups = pxml.getLeftRightTopBottomReadingOrder(words, fake_baseline=True, max_horiz_iou=1, prolong_alpha=0.0)
+			line = pxml.selectNth('//_:TextLine')
+			group_idx = 0
+			idx_in_group=0
+			for n in order:
+				word_idx = order.index(n)
+				if idx_in_group>=groups[group_idx]:
+					group_idx+=1
+					idx_in_group=0
+
+				pxml.setProperty(words[n],'word_idx',str(word_idx))
+				pxml.setProperty(words[n],"line",str(group_idx))
+				pxml.moveElem(words[n],line)
+				idx_in_group+=1
 
 			# Write XML to file
 			pxml.write('pagexmls/'+gtxml_name+".xml")
-			'''cv2.imshow('img', img)
-			cv2.waitKey(0)'''
+			cv2.imwrite('pred'+str(idx)+'.jpg', img)
 			print "Get more preds?"
 			continue_eval =raw_input()
 			if continue_eval!='n' and continue_eval!='N': continue
+			else: sys.exit()
 
 if __name__ == '__main__':
  main()
