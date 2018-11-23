@@ -113,13 +113,12 @@ def generate_pagexml(idx,data,retinanet,score_threshold,dataset_val):
 				transcripts.append(np.argmax(bbox[(5+k*27):((5+(k+1)*27))]))
 			transcripts=np.array(transcripts)
 			transcript=labels_to_text(transcripts,alphabet)
-			#pxml.setTextEquiv(word, "".join([alphabet[transcripts[k]] for k in range(len(transcripts))]), conf )
-			#pxml.setTextEquiv( reg, "".join([alphabet[transcripts[k]] for k in range(len(transcripts))]), conf )
 			draw_caption(img, (x1, y1, x2, y2), "".join([alphabet[transcripts[k]] for k in range(len(transcripts))]))
 
 
 			# Set the text for the text region
 			conf.assign(0.9)
+			pxml.setTextEquiv(word, "".join([alphabet[transcripts[k]] for k in range(len(transcripts))]), conf )
 
 			# Add property to text region
 			pxml.setProperty(word,"category" , label_name )
