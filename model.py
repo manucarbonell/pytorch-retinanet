@@ -1,6 +1,7 @@
-import pdb
 import torch.nn as nn
+import torch.autograd as ag
 import torch
+import pdb
 import math
 import time
 import torch.utils.model_zoo as model_zoo
@@ -9,6 +10,9 @@ from anchors import Anchors
 import losses
 from losses import calc_iou
 from lib.nms.pth_nms import pth_nms
+#from roi_pooling.modules.roi_pool import RoIPool
+from RoIPooling import roi_pooling, adaptive_max_pool,AdaptiveMaxPool2d
+
 
 def nms(dets, thresh):
     "Dispatch to either CPU or GPU NMS implementations.\
@@ -22,7 +26,6 @@ model_urls = {
     'resnet101': 'https://download.pytorch.org/models/resnet101-5d3b4d8f.pth',
     'resnet152': 'https://download.pytorch.org/models/resnet152-b121ed2d.pth',
 }
-
 class PyramidFeatures(nn.Module):
     def __init__(self, C3_size, C4_size, C5_size, feature_size=256):
         super(PyramidFeatures, self).__init__()
@@ -217,13 +220,16 @@ class ResNet(nn.Module):
 	#self.boxSampler = BoxSampler('train')
         self.anchors = Anchors()
 
+
+
         self.regressBoxes = BBoxTransform()
 
         self.clipBoxes = ClipBoxes()
         
         self.focalLoss = losses.FocalLoss()	
 	#self.ctc = losses.ctc()
-        
+      
+  
 	for m in self.modules():
             if isinstance(m, nn.Conv2d):
                 n = m.kernel_size[0] * m.kernel_size[1] * m.out_channels
@@ -286,16 +292,21 @@ class ResNet(nn.Module):
         features = self.fpn([x2, x3, x4])
         regression = torch.cat([self.regressionModel(feature) for feature in features], dim=1)
         classification = torch.cat([self.classificationModel(feature) for feature in features], dim=1)
-
-
         anchors = self.anchors(img_batch)
+        transformed_anchors = self.regressBoxes(anchors, regression)
+	transformed_anchors = self.clipBoxes(transformed_anchors,img_batch)
+        #rois = ag.Variable(torch.LongTensor([[0,1,2,7,8],[0,3,3,8,8]]),requires_grad=False)
+	#pooled_features = torch.cat([roi_pooling(feature,rois) for feature in features],dim=1)
+	pooled_features = [roi_pooling(feature,transformed_anchors[0,:,:5]) for feature in features]
+	pooled_features = torch.cat(pooled_features,dim=0)
+	pooled_features = pooled_features.view(img_batch.shape[0],-1,features[0].shape[1],pooled_features.shape[-2],pooled_features.shape[-1])
 	#transformed_anchors = self.boxSampler(img_batch,anchors,regression,classification)
 	
 	#print ("box Sampler out shape",transformed_anchors.shape)
 
         if self.training:
 	    #ctc_loss = self.ctc(transformed_anchors,annotations,criterion)
-            focal_loss= self.focalLoss(classification, regression, anchors, annotations,criterion)
+            focal_loss= self.focalLoss(classification, regression, anchors, annotations,criterion,pooled_features)
 	    return focal_loss
         else:
             transformed_anchors = self.regressBoxes(anchors, regression)
