@@ -42,7 +42,7 @@ def labels_to_text(labels,alphabet):
     return ret
 
 
-def generate_pagexml(image_id,data,retinanet,score_threshold,dataset_val):
+def generate_pagexml(image_id,data,retinanet,score_threshold,dataset_val,nms_threshold):
 	image_name = image_id+'.jpg'
 	file ='pagexmls/'+image_name
 	alphabet = " abcdefghijklmnopqrstuvwxy z"
@@ -58,7 +58,7 @@ def generate_pagexml(image_id,data,retinanet,score_threshold,dataset_val):
 		im=data['img']
 		
 		im = im.cuda().float()
-		scores, classification, transformed_anchors = retinanet(im)
+		scores, classification, transformed_anchors = retinanet([im,nms_threshold])
 		print('Elapsed time: {}'.format(time.time()-st))
 		idxs = np.where(scores>score_threshold)
 		img = np.array(255 * unnormalize(data['img'][0, :, :, :])).copy()
@@ -202,7 +202,7 @@ def main(args=None):
 	for idx, data in enumerate(dataloader_val):
 		# Create a new page xml
 		image_name=dataset_val.image_names[idx].split('/')[-1].split('.')[-2]
-		generate_pagexml(image_name,data,retinanet,score_threshold,dataset_val)
+		generate_pagexml(image_name,data,retinanet,score_threshold,dataset_val,nms_threshold)
 
 if __name__ == '__main__':
  main()

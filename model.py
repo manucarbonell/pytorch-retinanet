@@ -187,7 +187,7 @@ class BoxSampler(nn.Module):
         transformed_anchors = transformed_anchors[:, scores_over_thresh, :]
         scores = scores[:, scores_over_thresh, :]
 	
-        anchors_nms_idx = nms(torch.cat([transformed_anchors, scores], dim=2)[0, :, :], 0.5)
+        anchors_nms_idx = nms(torch.cat([transformed_anchors, scores], dim=2)[0, :, :], 0.1)
 	
 	return transformed_anchors
 
@@ -271,7 +271,7 @@ class ResNet(nn.Module):
         if self.training:
             img_batch, annotations,criterion = inputs
         else:
-            img_batch = inputs
+            img_batch,nms_threshold= inputs
             
         x = self.conv1(img_batch)
         x = self.bn1(x)
@@ -316,7 +316,7 @@ class ResNet(nn.Module):
             transformed_anchors = transformed_anchors[:, scores_over_thresh, :]
             scores = scores[:, scores_over_thresh, :]
 
-            anchors_nms_idx = nms(torch.cat([transformed_anchors[...,:4], scores], dim=2)[0, :, :], 0.5)
+            anchors_nms_idx = nms(torch.cat([transformed_anchors[...,:4], scores], dim=2)[0, :, :], nms_threshold)
 
             nms_scores, nms_class = classification[0, anchors_nms_idx, :].max(dim=1)
 
