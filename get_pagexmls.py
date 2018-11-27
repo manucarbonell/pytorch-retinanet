@@ -42,8 +42,8 @@ def labels_to_text(labels,alphabet):
     return ret
 
 
-def generate_pagexml(idx,data,retinanet,score_threshold,dataset_val):
-	image_name = str(idx)+'.jpg'
+def generate_pagexml(image_id,data,retinanet,score_threshold,dataset_val):
+	image_name = image_id+'.jpg'
 	file ='pagexmls/'+image_name
 	alphabet = " abcdefghijklmnopqrstuvwxy z"
 	
@@ -78,9 +78,9 @@ def generate_pagexml(idx,data,retinanet,score_threshold,dataset_val):
 		pxml.newXml('retinanet_dets',image_name,width,height)
 		page = pxml.selectNth("//_:Page",0)
 		reg = pxml.addTextRegion(page)
-		pxml.setCoordsBBox(reg,0, 0, width, height, conf )
+		pxml.setCoordsBBox(reg,0, 0, width, height)
 		line = pxml.addTextLine(reg)
-		pxml.setCoordsBBox(line,0, 0, width, height, conf )
+		pxml.setCoordsBBox(line,0, 0, width, height)
 		words = []
 		for k in range(len(dataset_val.labels)):
 			cv2.putText(img,dataset_val.labels[k],(25,25+k*15), cv2.FONT_HERSHEY_PLAIN, 1, colors[k], 2)
@@ -102,14 +102,14 @@ def generate_pagexml(idx,data,retinanet,score_threshold,dataset_val):
 			word = pxml.addWord(line,"ID"+str(j))
 			
 			# Set text region bounding box with a confidence
-			pxml.setCoordsBBox(word,x1, y1, x2-x1, y2-y1, conf )
+			pxml.setCoordsBBox(word,x1, y1, x2-x1, y2-y1)
 			
 			#pxml.setCoordsBBox( reg,x1, y1, x2-x1, y2-y1, conf )
 			
 			transcripts=[]
 			confs=[]
 			seq_len = int(bbox[4])
-			for k in range(seq_len):
+			for k in range(seq_len+1):
 				transcripts.append(np.argmax(bbox[(5+k*27):((5+(k+1)*27))]))
 			transcripts=np.array(transcripts)
 			transcript=labels_to_text(transcripts,alphabet)
@@ -117,25 +117,25 @@ def generate_pagexml(idx,data,retinanet,score_threshold,dataset_val):
 
 
 			# Set the text for the text region
-			conf.assign(0.9)
-			pxml.setTextEquiv(word, "".join([alphabet[transcripts[k]] for k in range(len(transcripts))]), conf )
+			conf.assign(1)
+			pxml.setTextEquiv(word, "".join([alphabet[transcripts[k]] for k in range(len(transcripts))]))
 
 			# Add property to text region
 			pxml.setProperty(word,"category" , label_name )
 
-			# Add a second page with a text region and specific id
-			#page = pxml.addPage("example_image_2.jpg", 300, 300)
-			#reg = pxml.addTextRegion( page, "regA" )
-			#pxml.setCoordsBBox( reg, 15, 12, 76, 128 )
 			words.append(word)
 		words = pxml.select('//_:Word')
 		order, groups = pxml.getLeftRightTopBottomReadingOrder(words, fake_baseline=True, max_horiz_iou=1, prolong_alpha=0.0)
-		line = pxml.selectNth('//_:TextLine')
+		line = pxml.selectNth('//_:TextLine',0)
 		group_idx = 0
 		idx_in_group=0
+		#line= pxml.addTextLine(reg,"ID"+str(group_idx+1))
 		for n in order:
 			word_idx = order.index(n)
+			
 			if idx_in_group>=groups[group_idx]:
+				#line = pxml.selectNth('//_:TextLine',group_idx,reg)
+				#line= pxml.selectNth(reg)
 				group_idx+=1
 				idx_in_group=0
 
@@ -146,7 +146,7 @@ def generate_pagexml(idx,data,retinanet,score_threshold,dataset_val):
 
 		# Write XML to file
 		pxml.write('pagexmls/'+gtxml_name+".xml")
-		cv2.imwrite('pred'+str(idx)+'.jpg', img)
+		cv2.imwrite(str(image_id)+'.jpg', img)
 
 
 def draw_caption(image, box, caption):
@@ -201,11 +201,8 @@ def main(args=None):
 
 	for idx, data in enumerate(dataloader_val):
 		# Create a new page xml
-		generate_pagexml(idx,data,retinanet,score_threshold,dataset_val)
-		print "Get more preds?"
-		continue_eval =raw_input()
-		if continue_eval!='n' and continue_eval!='N': continue
-		else: sys.exit()
+		image_name=dataset_val.image_names[idx].split('/')[-1].split('.')[-2]
+		generate_pagexml(image_name,data,retinanet,score_threshold,dataset_val)
 
 if __name__ == '__main__':
  main()
