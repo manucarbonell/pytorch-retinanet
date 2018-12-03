@@ -130,6 +130,7 @@ def main(args=None):
 			try:
 				optimizer.zero_grad()
 
+				#(classification_loss, regression_loss) = retinanet([data['img'].cuda().float(), data['annot'],ctc])
 				(classification_loss, regression_loss,ctc_loss) = retinanet([data['img'].cuda().float(), data['annot'],ctc])
 
 				classification_loss = classification_loss.mean()
@@ -138,12 +139,14 @@ def main(args=None):
 					loss = classification_loss + regression_loss/2.+ctc_loss/4.
 				else:
 					loss = classification_loss +regression_loss'''
-				loss = classification_loss + regression_loss+ctc_loss
+				if ctc_loss>0:
+					loss = (classification_loss + regression_loss+ctc_loss)/4
+				else:
+					loss = classification_loss +regression_loss
 				if bool(loss == 0):
 					continue
 
 				loss.backward()
-
 				torch.nn.utils.clip_grad_norm_(retinanet.parameters(), 0.1)
 
 				optimizer.step()
@@ -156,6 +159,7 @@ def main(args=None):
 				
 				del classification_loss
 				del regression_loss
+				del ctc_loss
 			except Exception as e:
 				print(e)
 				continue

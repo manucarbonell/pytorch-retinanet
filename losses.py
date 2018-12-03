@@ -27,25 +27,23 @@ def calc_iou(a, b):
 class FocalLoss(nn.Module):
     #def __init__(self):
 
-    def forward(self, classifications, regressions, anchors, annotations,criterion):
+    def forward(self, classifications, regressions, anchors, annotations,criterion,transcription,selected_indices):
         alpha = 0.25
         gamma = 2.0
 	alphabet_len = 27
-	max_seq_len = 41
+	seq_len = 60
 	max_label_len = 20
         batch_size = classifications.shape[0]
         classification_losses = []
         regression_losses = []
 	#regressions = regressions[...,:4]
         anchor = anchors[0, :, :]
-
         anchor_widths  = anchor[:, 2] - anchor[:, 0]
         anchor_heights = anchor[:, 3] - anchor[:, 1]
         anchor_ctr_x   = anchor[:, 0] + 0.5 * anchor_widths
         anchor_ctr_y   = anchor[:, 1] + 0.5 * anchor_heights
 
         for j in range(batch_size):
-
             classification = classifications[j, :, :]
             regression = regressions[j, :, :]
 
@@ -109,9 +107,6 @@ class FocalLoss(nn.Module):
                 gt_ctr_x   = assigned_annotations[:, 0] + 0.5 * gt_widths
                 gt_ctr_y   = assigned_annotations[:, 1] + 0.5 * gt_heights
 
-		transcript_labels = assigned_annotations[:,5:(5+max_label_len)]
-		label_lengths = torch.sum(transcript_labels>0,dim=1).float()
-			
 		
                 # clip widths to 1
                 gt_widths  = torch.clamp(gt_widths, min=1)
@@ -122,15 +117,17 @@ class FocalLoss(nn.Module):
                 targets_dw = torch.log(gt_widths / anchor_widths_pi)
                 targets_dh = torch.log(gt_heights / anchor_heights_pi)
 
-                targets = torch.stack((targets_dx, targets_dy, targets_dw, targets_dh,label_lengths))
+                targets = torch.stack((targets_dx, targets_dy, targets_dw, targets_dh))
+                #targets = torch.stack((targets_dx, targets_dy, targets_dw, targets_dh,label_lengths))
                 targets = targets.t()
 
-                targets = targets/torch.Tensor([[0.1, 0.1, 0.2, 0.2,1]]).cuda()
+                targets = targets/torch.Tensor([[0.1, 0.1, 0.2, 0.2]]).cuda()
+                #targets = targets/torch.Tensor([[0.1, 0.1, 0.2, 0.2,1]]).cuda()
 
 
                 negative_indices = 1 - positive_indices
 
-                regression_diff = torch.abs(targets - regression[positive_indices, :5])
+                regression_diff = torch.abs(targets - regression[positive_indices, :4])
 
                 regression_loss = torch.where(
                     torch.le(regression_diff, 1.0 / 9.0),
@@ -138,9 +135,29 @@ class FocalLoss(nn.Module):
                     regression_diff - 0.5 / 9.0
                 )
                 regression_losses.append(regression_loss.mean())
-
-
-	        # compute ctc loss
+		
+		if selected_indices.shape[0]>250:
+			# compute ctc loss
+			transcript_labels = bbox_annotation[IoU_argmax,5:(5+max_label_len)][selected_indices,:].int().cpu()
+			label_lengths = torch.sum(transcript_labels>0,dim=1).int()
+			#transcript_labels = assigned_annotations[selected_indices,5:(5+max_label_len)]
+			transcript_labels = transcript_labels[transcript_labels>0]
+			transcript_labels = torch.clamp(transcript_labels,1,alphabet_len)
+			transcript_labels = transcript_labels.view(transcript_labels.numel()).cpu()
+		
+		
+			transcription = transcription.view(-1,seq_len,alphabet_len).transpose(0,1).contiguous()
+			transcription.requires_grad_(True)
+			
+			probs_sizes = torch.IntTensor(())
+			probs_sizes = probs_sizes.new_full((transcription.shape[1],),seq_len)
+			ctc_loss = criterion(transcription,transcript_labels,label_lengths,probs_sizes)
+			ctc_loss = ctc_loss.float()
+			ctc_loss = (ctc_loss/label_lengths.shape[0])
+			print label_lengths.shape[0]
+			ctc_loss = ctc_loss.cuda()
+		else: ctc_loss = torch.tensor(1).float().cuda()
+	        '''# compute ctc loss
 		transcript_labels = assigned_annotations[:,5:(5+max_label_len)].int().cpu()
 		label_lengths = torch.sum(transcript_labels>0,dim=1).int()
 		transcript_preds = regressions[j,positive_indices,5:]
@@ -159,7 +176,7 @@ class FocalLoss(nn.Module):
 		ctc_loss = ctc_loss.float()
 		ctc_loss = (ctc_loss/label_lengths.shape[0]).cuda()
 		#print "CTC LOSS Value",ctc_loss
-		#print "class loss",torch.stack(classification_losses).mean(dim=0, keepdim=True)
+		#print "class loss",torch.stack(classification_losses).mean(dim=0, keepdim=True)'''
             else:
                 regression_losses.append(torch.tensor(0).float().cuda())
         return torch.stack(classification_losses).mean(dim=0, keepdim=True), torch.stack(regression_losses).mean(dim=0, keepdim=True),ctc_loss

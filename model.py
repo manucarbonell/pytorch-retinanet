@@ -75,6 +75,19 @@ class PyramidFeatures(nn.Module):
 
         return [P3_x, P4_x, P5_x, P6_x, P7_x]
 
+class RecognitionModel(nn.Module):
+    def __init__(self,feature_size = 256*30):
+	super(RecognitionModel,self).__init__()
+	self.alphabet_len = 27
+	self.output = nn.Linear(in_features=feature_size,out_features=self.alphabet_len)
+	#self.smx = nn.Sigmoid()
+		
+    def forward(self,x):
+	x=x.view(x.shape[0]*x.shape[1],x.shape[2]*x.shape[3],x.shape[4]).transpose(1,2)
+	output = self.output(x)
+	#output = self.smx(output)
+	return output
+
 
 class RegressionModel(nn.Module):
     def __init__(self, num_features_in, num_anchors=9, feature_size=256):
@@ -93,8 +106,8 @@ class RegressionModel(nn.Module):
         self.conv4 = nn.Conv2d(feature_size, feature_size, kernel_size=3, padding=1)
         self.act4 = nn.ReLU()
 
-        #self.output = nn.Conv2d(feature_size, num_anchors*(4), kernel_size=3, padding=1)
-        self.output = nn.Conv2d(feature_size, num_anchors*(4+self.alphabet_len*self.max_seq_len+1), kernel_size=3, padding=1)
+        self.output = nn.Conv2d(feature_size, num_anchors*4, kernel_size=3, padding=1)
+        #self.output = nn.Conv2d(feature_size, num_anchors*(4+self.alphabet_len*self.max_seq_len+1), kernel_size=3, padding=1)
 
     def forward(self, x):
 
@@ -115,8 +128,8 @@ class RegressionModel(nn.Module):
         # out is B x C x W x H, with C = 4*num_anchors
         out = out.permute(0, 2, 3, 1)
 
-        #return out.contiguous().view(out.shape[0], -1, 4)
-        return out.contiguous().view(out.shape[0], -1, 4+self.max_seq_len*self.alphabet_len+1)
+        return out.contiguous().view(out.shape[0], -1, 4)
+        #return out.contiguous().view(out.shape[0], -1, 4+self.max_seq_len*self.alphabet_len+1)
 
 
 class ClassificationModel(nn.Module):
@@ -175,24 +188,27 @@ class BoxSampler(nn.Module):
 	self.clipBoxes = ClipBoxes()
 
     def forward(self,img_batch,anchors,regression,classification):
-	
 	transformed_anchors = self.regressBoxes(anchors, regression)
         transformed_anchors = self.clipBoxes(transformed_anchors, img_batch)
 
         scores = torch.max(classification, dim=2, keepdim=True)[0]
 	
-        scores_over_thresh = (scores>0.5)[0, :, 0]
+        scores_over_thresh = (scores>0.45)[0, :, 0]
 	
-        if scores_over_thresh.sum() == 0:
-	        # no boxes to NMS, just return
-                return torch.zeros(0, 4)
-        classification = classification[:, scores_over_thresh, :]
-        transformed_anchors = transformed_anchors[:, scores_over_thresh, :]
-        scores = scores[:, scores_over_thresh, :]
+	scores_over_thresh_idx=scores_over_thresh.nonzero()
 	
-        anchors_nms_idx = nms(torch.cat([transformed_anchors, scores], dim=2)[0, :, :], 0.5)
-	
-	return transformed_anchors
+
+	if scores_over_thresh.sum() > 0:
+		transformed_anchors = transformed_anchors[:, scores_over_thresh, :]
+		scores = scores[:, scores_over_thresh, :]
+		
+		anchors_nms_idx = nms(torch.cat([transformed_anchors, scores], dim=2)[0, :, :], 0.1)
+		selected_indices = scores_over_thresh_idx[anchors_nms_idx]
+		selected_indices = selected_indices.view(selected_indices.numel())
+		return transformed_anchors[0,anchors_nms_idx,:],selected_indices
+
+	else:
+       		return torch.zeros(1,1, 4),torch.zeros(1)
 
 class ResNet(nn.Module):
 
@@ -207,7 +223,8 @@ class ResNet(nn.Module):
         self.layer2 = self._make_layer(block, 128, layers[1], stride=2)
         self.layer3 = self._make_layer(block, 256, layers[2], stride=2)
         self.layer4 = self._make_layer(block, 512, layers[3], stride=2)
-
+	self.downsampling_factors = [8,16,32,64,128]
+		
         if block == BasicBlock:
             fpn_sizes = [self.layer2[layers[1]-1].conv2.out_channels, self.layer3[layers[2]-1].conv2.out_channels, self.layer4[layers[3]-1].conv2.out_channels]
         elif block == Bottleneck:
@@ -216,11 +233,10 @@ class ResNet(nn.Module):
         self.fpn = PyramidFeatures(fpn_sizes[0], fpn_sizes[1], fpn_sizes[2])
 
         self.regressionModel = RegressionModel(256)
+	self.recognitionModel = RecognitionModel()
         self.classificationModel = ClassificationModel(256, num_classes=num_classes)
-	#self.boxSampler = BoxSampler('train')
+	self.boxSampler = BoxSampler('train')
         self.anchors = Anchors()
-
-
 
         self.regressBoxes = BBoxTransform()
 
@@ -247,7 +263,11 @@ class ResNet(nn.Module):
         self.regressionModel.output.weight.data.fill_(0)
         self.regressionModel.output.bias.data.fill_(0)
 
-        self.freeze_bn()
+        self.recognitionModel.output.weight.data.fill_(0)
+
+        self.recognitionModel.output.bias.data.fill_(-math.log((1.0-prior)/prior))
+        
+	self.freeze_bn()
 
     def _make_layer(self, block, planes, blocks, stride=1):
         downsample = None
@@ -288,25 +308,32 @@ class ResNet(nn.Module):
         x2 = self.layer2(x1)
         x3 = self.layer3(x2)
         x4 = self.layer4(x3)
-
         features = self.fpn([x2, x3, x4])
         regression = torch.cat([self.regressionModel(feature) for feature in features], dim=1)
+	for feature in features:
+		reg = self.regressionModel(feature)
+		
         classification = torch.cat([self.classificationModel(feature) for feature in features], dim=1)
         anchors = self.anchors(img_batch)
-        transformed_anchors = self.regressBoxes(anchors, regression)
-	transformed_anchors = self.clipBoxes(transformed_anchors,img_batch)
-        #rois = ag.Variable(torch.LongTensor([[0,1,2,7,8],[0,3,3,8,8]]),requires_grad=False)
-	#pooled_features = torch.cat([roi_pooling(feature,rois) for feature in features],dim=1)
-	pooled_features = [roi_pooling(feature,transformed_anchors[0,:,:5]) for feature in features]
-	pooled_features = torch.cat(pooled_features,dim=0)
-	pooled_features = pooled_features.view(img_batch.shape[0],-1,features[0].shape[1],pooled_features.shape[-2],pooled_features.shape[-1])
-	#transformed_anchors = self.boxSampler(img_batch,anchors,regression,classification)
-	
-	#print ("box Sampler out shape",transformed_anchors.shape)
-
+	transformed_anchors,selected_indices = self.boxSampler(img_batch,anchors,regression,classification)
+	if transformed_anchors.shape[0]>1 and transformed_anchors.shape[0]<1000:
+		# if scores_over_thresh.sum() > 0:
+		pooled_features=[]
+		pooled_feat_indices=[]
+		#for i in range(len(features)):
+		for i in range(1):
+			feature = features[i]
+			pooled_feature = roi_pooling(feature,transformed_anchors[:,:4],size = (60,30),spatial_scale=1./self.downsampling_factors[i])
+			pooled_features.append(pooled_feature)
+		
+		pooled_features=torch.sum(torch.stack(pooled_features,dim=0),dim=0)
+		pooled_features = pooled_features.view(img_batch.shape[0],-1,features[0].shape[1],pooled_features.shape[-2],pooled_features.shape[-1])
+		transcription = self.recognitionModel(pooled_features)
+	else:
+		transcription = torch.zeros((1,1,1))
         if self.training:
 	    #ctc_loss = self.ctc(transformed_anchors,annotations,criterion)
-            focal_loss= self.focalLoss(classification, regression, anchors, annotations,criterion,pooled_features)
+            focal_loss= self.focalLoss(classification, regression, anchors, annotations,criterion,transcription,selected_indices)
 	    return focal_loss
         else:
             transformed_anchors = self.regressBoxes(anchors, regression)
