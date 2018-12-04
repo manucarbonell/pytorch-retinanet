@@ -151,7 +151,7 @@ class FocalLoss(nn.Module):
 			
 			probs_sizes = torch.IntTensor(())
 			probs_sizes = probs_sizes.new_full((transcription.shape[1],),seq_len)
-			ctc_loss = criterion(transcription,transcript_labels,label_lengths,probs_sizes)
+			ctc_loss = criterion(transcription,transcript_labels,probs_sizes,label_lengths)
 			ctc_loss = ctc_loss.float()
 			ctc_loss = (ctc_loss/label_lengths.shape[0])
 			print label_lengths.shape[0]
