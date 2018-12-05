@@ -41,9 +41,9 @@ def roi_pooling(input, rois, size=(100,30), spatial_scale=1.0):
     assert(rois.dim() == 2)
     assert(rois.size(1) == 4)
     output = []
+    probs_sizes = []
     rois = rois.data.float()
     num_rois = rois.size(0)
-    
     rois[:,0:].mul_(spatial_scale)
     rois = rois.long()
     #for i in range(int(num_rois/20000)):
@@ -52,10 +52,22 @@ def roi_pooling(input, rois, size=(100,30), spatial_scale=1.0):
         im_idx =0#roi[0]
         im = input.narrow(0, im_idx, 1)[..., roi[1]:(roi[3]+1), roi[0]:(roi[2]+1)]
     	if im.shape[-1]<1 or im.shape[-2]<1:
-		pdb.set_trace()
 		continue  
-	output.append(adaptive_max_pool(im, size))
-    return torch.cat(output, 0)
+	real_width = int((roi[2]-roi[0]).cpu())
+	real_height = max(int((roi[3]-roi[1]).cpu()),1)
+	
+	scale_h = float(size[1])/real_height
+	no_padded_w = int(real_width*scale_h)
+	# Add padding or cut roi
+	if no_padded_w<size[0]:
+		pooled_feat = adaptive_max_pool(im,(no_padded_w,size[1]))
+		pooled_feat = torch.cat([pooled_feat,torch.zeros(pooled_feat.shape[0],pooled_feat.shape[1],pooled_feat.shape[2],size[0]-no_padded_w).cuda()],dim=-1)
+	else:
+		pooled_feat = adaptive_max_pool(im,size)
+	
+	output.append(pooled_feat)
+	probs_sizes.append(min(no_padded_w,pooled_feat.shape[-1]))
+    return torch.cat(output, 0),torch.Tensor(probs_sizes).int()
 
 if __name__ == '__main__':
     input = ag.Variable(torch.rand(1,1,10,10), requires_grad=True)

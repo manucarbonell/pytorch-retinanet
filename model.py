@@ -75,17 +75,39 @@ class PyramidFeatures(nn.Module):
 
         return [P3_x, P4_x, P5_x, P6_x, P7_x]
 
+
+class BidirectionalLSTM(nn.Module):
+    def __init__(self, nIn, nHidden, nOut):
+        super(BidirectionalLSTM, self).__init__()
+
+        self.rnn = nn.LSTM(nIn, nHidden, bidirectional=True)
+        self.embedding = nn.Linear(nHidden * 2, nOut)
+
+    def forward(self, input):
+        recurrent, _ = self.rnn(input)
+        T, b, h = recurrent.size()
+        t_rec = recurrent.view(T * b, h)
+
+        output = self.embedding(t_rec)  # [T * b, nOut]
+        output = output.view(T, b, -1)
+
+	return output
+
+
 class RecognitionModel(nn.Module):
     def __init__(self,feature_size = 256*30):
 	super(RecognitionModel,self).__init__()
 	self.alphabet_len = 27
+	nh = 256
+	#self.rnn = nn.Sequential(
+        #BidirectionalLSTM(feature_size, nh,nh),
+	#BidirectionalLSTM(nh,nh, feature_size))
 	self.output = nn.Linear(in_features=feature_size,out_features=self.alphabet_len)
-	#self.smx = nn.Sigmoid()
 		
     def forward(self,x):
 	x=x.view(x.shape[0]*x.shape[1],x.shape[2]*x.shape[3],x.shape[4]).transpose(1,2)
+	#x = self.rnn(x)
 	output = self.output(x)
-	#output = self.smx(output)
 	return output
 
 
@@ -141,7 +163,7 @@ class ClassificationModel(nn.Module):
         
         self.conv1 = nn.Conv2d(num_features_in, feature_size, kernel_size=3, padding=1)
         self.act1 = nn.ReLU()
-
+	'''
         self.conv2 = nn.Conv2d(feature_size, feature_size, kernel_size=3, padding=1)
         self.act2 = nn.ReLU()
 
@@ -150,7 +172,7 @@ class ClassificationModel(nn.Module):
 
         self.conv4 = nn.Conv2d(feature_size, feature_size, kernel_size=3, padding=1)
         self.act4 = nn.ReLU()
-
+	'''
         self.output = nn.Conv2d(feature_size, num_anchors*num_classes, kernel_size=3, padding=1)
         self.output_act = nn.Sigmoid()
 
@@ -158,7 +180,7 @@ class ClassificationModel(nn.Module):
 
         out = self.conv1(x)
         out = self.act1(out)
-
+	'''
         out = self.conv2(out)
         out = self.act2(out)
 
@@ -167,7 +189,7 @@ class ClassificationModel(nn.Module):
 
         out = self.conv4(out)
         out = self.act4(out)
-
+	'''
         out = self.output(out)
         out = self.output_act(out)
 
@@ -202,7 +224,7 @@ class BoxSampler(nn.Module):
 		transformed_anchors = transformed_anchors[:, scores_over_thresh, :]
 		scores = scores[:, scores_over_thresh, :]
 		
-		anchors_nms_idx = nms(torch.cat([transformed_anchors, scores], dim=2)[0, :, :], 0.1)
+		anchors_nms_idx = nms(torch.cat([transformed_anchors, scores], dim=2)[0, :, :], 0.15)
 		selected_indices = scores_over_thresh_idx[anchors_nms_idx]
 		selected_indices = selected_indices.view(selected_indices.numel())
 		return transformed_anchors[0,anchors_nms_idx,:],selected_indices
@@ -295,9 +317,10 @@ class ResNet(nn.Module):
     def forward(self, inputs):
 
         if self.training:
-            img_batch, annotations,criterion = inputs
+            img_batch, annotations,criterion,iter_num = inputs
         else:
             img_batch = inputs
+	    iter_num = 1000000
             
         x = self.conv1(img_batch)
         x = self.bn1(x)
@@ -316,14 +339,15 @@ class ResNet(nn.Module):
         classification = torch.cat([self.classificationModel(feature) for feature in features], dim=1)
         anchors = self.anchors(img_batch)
 	transformed_anchors,selected_indices = self.boxSampler(img_batch,anchors,regression,classification)
-	if transformed_anchors.shape[0]>1 and transformed_anchors.shape[0]<1000:
+	if iter_num>0 and transformed_anchors.shape[0]>1 and transformed_anchors.shape[0]<333:
+	
 		# if scores_over_thresh.sum() > 0:
 		pooled_features=[]
 		pooled_feat_indices=[]
 		#for i in range(len(features)):
 		for i in range(1):
 			feature = features[i]
-			pooled_feature = roi_pooling(feature,transformed_anchors[:,:4],size = (60,30),spatial_scale=1./self.downsampling_factors[i])
+			pooled_feature,probs_sizes = roi_pooling(feature,transformed_anchors[:,:4],size = (120,30),spatial_scale=1./self.downsampling_factors[i])
 			pooled_features.append(pooled_feature)
 		
 		pooled_features=torch.sum(torch.stack(pooled_features,dim=0),dim=0)
@@ -331,9 +355,10 @@ class ResNet(nn.Module):
 		transcription = self.recognitionModel(pooled_features)
 	else:
 		transcription = torch.zeros((1,1,1))
+		probs_sizes=[]
         if self.training:
 	    #ctc_loss = self.ctc(transformed_anchors,annotations,criterion)
-            focal_loss= self.focalLoss(classification, regression, anchors, annotations,criterion,transcription,selected_indices)
+            focal_loss= self.focalLoss(classification, regression, anchors, annotations,criterion,transcription,selected_indices,probs_sizes)
 	    return focal_loss
         else:
             transformed_anchors = self.regressBoxes(anchors, regression)
@@ -344,7 +369,7 @@ class ResNet(nn.Module):
 
             #scores = torch.max(regression[...,4:], dim=-1, keepdim=True)[0]
 
-            scores_over_thresh = (scores>0.05)[0, :, 0]
+            scores_over_thresh = (scores>0.15)[0, :, 0]
 
             if scores_over_thresh.sum() == 0:
                 # no boxes to NMS, just return
@@ -354,11 +379,11 @@ class ResNet(nn.Module):
             transformed_anchors = transformed_anchors[:, scores_over_thresh, :]
             scores = scores[:, scores_over_thresh, :]
 
-            anchors_nms_idx = nms(torch.cat([transformed_anchors[...,:4], scores], dim=2)[0, :, :], 0.5)
+            anchors_nms_idx = nms(torch.cat([transformed_anchors[...,:4], scores], dim=2)[0, :, :], 0.15)
 
             nms_scores, nms_class = classification[0, anchors_nms_idx, :].max(dim=1)
 
-            return [nms_scores, nms_class, transformed_anchors[0, anchors_nms_idx, :]]
+            return [nms_scores, nms_class, transformed_anchors[0, anchors_nms_idx, :],transcription]
 
 
 

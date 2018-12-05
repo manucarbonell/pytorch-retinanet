@@ -27,11 +27,11 @@ def calc_iou(a, b):
 class FocalLoss(nn.Module):
     #def __init__(self):
 
-    def forward(self, classifications, regressions, anchors, annotations,criterion,transcription,selected_indices):
+    def forward(self, classifications, regressions, anchors, annotations,criterion,transcription,selected_indices,probs_sizes):
         alpha = 0.25
         gamma = 2.0
 	alphabet_len = 27
-	seq_len = 60
+	seq_len = 120
 	max_label_len = 20
         batch_size = classifications.shape[0]
         classification_losses = []
@@ -136,7 +136,7 @@ class FocalLoss(nn.Module):
                 )
                 regression_losses.append(regression_loss.mean())
 		
-		if selected_indices.shape[0]>250:
+		if transcription.shape[1]>1:
 			# compute ctc loss
 			transcript_labels = bbox_annotation[IoU_argmax,5:(5+max_label_len)][selected_indices,:].int().cpu()
 			label_lengths = torch.sum(transcript_labels>0,dim=1).int()
@@ -149,14 +149,11 @@ class FocalLoss(nn.Module):
 			transcription = transcription.view(-1,seq_len,alphabet_len).transpose(0,1).contiguous()
 			transcription.requires_grad_(True)
 			
-			probs_sizes = torch.IntTensor(())
-			probs_sizes = probs_sizes.new_full((transcription.shape[1],),seq_len)
 			ctc_loss = criterion(transcription,transcript_labels,probs_sizes,label_lengths)
 			ctc_loss = ctc_loss.float()
 			ctc_loss = (ctc_loss/label_lengths.shape[0])
-			print label_lengths.shape[0]
 			ctc_loss = ctc_loss.cuda()
-		else: ctc_loss = torch.tensor(1).float().cuda()
+		else: ctc_loss = torch.tensor(30).float().cuda()
 	        '''# compute ctc loss
 		transcript_labels = assigned_annotations[:,5:(5+max_label_len)].int().cpu()
 		label_lengths = torch.sum(transcript_labels>0,dim=1).int()

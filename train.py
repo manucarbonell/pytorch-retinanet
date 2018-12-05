@@ -44,6 +44,7 @@ def main(args=None):
 
 	parser.add_argument('--depth', help='Resnet depth, must be one of 18, 34, 50, 101, 152', type=int, default=18)
 	parser.add_argument('--epochs', help='Number of epochs', type=int, default=100)
+	parser.add_argument('--pretrained_model', help='Path of .pt file with pretrained model',default = 'esposallescsv_retinanet_0.pt')
 
 	parser = parser.parse_args(args)
 
@@ -83,19 +84,24 @@ def main(args=None):
 		sampler_val = AspectRatioBasedSampler(dataset_val, batch_size=1, drop_last=False)
 		dataloader_val = DataLoader(dataset_val, num_workers=3, collate_fn=collater, batch_sampler=sampler_val)
 
+
 	# Create the model
-	if parser.depth == 18:
-		retinanet = model.resnet18(num_classes=dataset_train.num_classes(), pretrained=True)
-	elif parser.depth == 34:
-		retinanet = model.resnet34(num_classes=dataset_train.num_classes(), pretrained=True)
-	elif parser.depth == 50:
-		retinanet = model.resnet50(num_classes=dataset_train.num_classes(), pretrained=True)
-	elif parser.depth == 101:
-		retinanet = model.resnet101(num_classes=dataset_train.num_classes(), pretrained=True)
-	elif parser.depth == 152:
-		retinanet = model.resnet152(num_classes=dataset_train.num_classes(), pretrained=True)
+
+	if os.path.exists(parser.pretrained_model):
+	        retinanet = torch.load(parser.pretrained_model)
 	else:
-		raise ValueError('Unsupported model depth, must be one of 18, 34, 50, 101, 152')		
+		if parser.depth == 18:
+			retinanet = model.resnet18(num_classes=dataset_train.num_classes(), pretrained=True)
+		elif parser.depth == 34:
+			retinanet = model.resnet34(num_classes=dataset_train.num_classes(), pretrained=True)
+		elif parser.depth == 50:
+			retinanet = model.resnet50(num_classes=dataset_train.num_classes(), pretrained=True)
+		elif parser.depth == 101:
+			retinanet = model.resnet101(num_classes=dataset_train.num_classes(), pretrained=True)
+		elif parser.depth == 152:
+			retinanet = model.resnet152(num_classes=dataset_train.num_classes(), pretrained=True)
+		else:
+			raise ValueError('Unsupported model depth, must be one of 18, 34, 50, 101, 152')		
 
 	use_gpu = True
 
@@ -131,7 +137,7 @@ def main(args=None):
 				optimizer.zero_grad()
 
 				#(classification_loss, regression_loss) = retinanet([data['img'].cuda().float(), data['annot'],ctc])
-				(classification_loss, regression_loss,ctc_loss) = retinanet([data['img'].cuda().float(), data['annot'],ctc])
+				(classification_loss, regression_loss,ctc_loss) = retinanet([data['img'].cuda().float(), data['annot'],ctc,epoch_num])
 
 				classification_loss = classification_loss.mean()
 				regression_loss = regression_loss.mean()	
@@ -139,10 +145,9 @@ def main(args=None):
 					loss = classification_loss + regression_loss/2.+ctc_loss/4.
 				else:
 					loss = classification_loss +regression_loss'''
-				if ctc_loss>0:
-					loss = (classification_loss + regression_loss+ctc_loss)/4
-				else:
-					loss = classification_loss +regression_loss
+
+				loss = classification_loss + regression_loss+ctc_loss
+				
 				if bool(loss == 0):
 					continue
 
