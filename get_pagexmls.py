@@ -38,7 +38,7 @@ def labels_to_text(labels,alphabet):
     return ret
 
 
-def generate_pagexml(idx,data,retinanet,score_threshold,dataset_val):
+def generate_pagexml(idx,data,retinanet,score_threshold,nms_threshold,dataset_val):
 	image_name = str(idx)+'.jpg'
 	file ='pagexmls/'+image_name
 	alphabet = " abcdefghijklmnopqrstuvwxyz"
@@ -159,8 +159,8 @@ def main(args=None):
 	parser.add_argument('--coco_path', help='Path to COCO directory')
 	parser.add_argument('--csv_classes', help='Path to file containing class list (see readme)')
 	parser.add_argument('--csv_val', help='Path to file containing validation annotations (optional, see readme)')
-	parser.add_argument('--score_threshold', help='Score above which boxes are kept',default=0.5)
-	parser.add_argument('--nms_threshold', help='Score above which boxes are kept',default=0.5)
+	parser.add_argument('--score_threshold', help='Score above which boxes are kept',default=0.45)
+	parser.add_argument('--nms_threshold', help='Score above which boxes are kept',default=0.15)
 
 	parser.add_argument('--model', help='Path to model (.pt) file.')
 
@@ -192,7 +192,7 @@ def main(args=None):
 
 	for idx, data in enumerate(dataloader_val):
 		# Create a new page xml
-		generate_pagexml(idx,data,retinanet,score_threshold,dataset_val)
+		generate_pagexml(idx,data,retinanet,score_threshold,nms_threshold,dataset_val)
 		print "Get more preds?"
 		continue_eval =raw_input()
 		if continue_eval!='n' and continue_eval!='N': continue

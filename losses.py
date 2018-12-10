@@ -31,7 +31,7 @@ class FocalLoss(nn.Module):
         alpha = 0.25
         gamma = 2.0
 	alphabet_len = 27
-	seq_len = 120
+	seq_len = 140
 	max_label_len = 20
         batch_size = classifications.shape[0]
         classification_losses = []

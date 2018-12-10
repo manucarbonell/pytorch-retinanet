@@ -210,12 +210,13 @@ class BoxSampler(nn.Module):
 	self.clipBoxes = ClipBoxes()
 
     def forward(self,img_batch,anchors,regression,classification):
+	
 	transformed_anchors = self.regressBoxes(anchors, regression)
         transformed_anchors = self.clipBoxes(transformed_anchors, img_batch)
 
         scores = torch.max(classification, dim=2, keepdim=True)[0]
 	
-        scores_over_thresh = (scores>0.45)[0, :, 0]
+        scores_over_thresh = (scores>0.5)[0, :, 0]
 	
 	scores_over_thresh_idx=scores_over_thresh.nonzero()
 	
@@ -224,7 +225,7 @@ class BoxSampler(nn.Module):
 		transformed_anchors = transformed_anchors[:, scores_over_thresh, :]
 		scores = scores[:, scores_over_thresh, :]
 		
-		anchors_nms_idx = nms(torch.cat([transformed_anchors, scores], dim=2)[0, :, :], 0.15)
+		anchors_nms_idx = nms(torch.cat([transformed_anchors, scores], dim=2)[0, :, :], 0.2)
 		selected_indices = scores_over_thresh_idx[anchors_nms_idx]
 		selected_indices = selected_indices.view(selected_indices.numel())
 		return transformed_anchors[0,anchors_nms_idx,:],selected_indices
@@ -347,7 +348,7 @@ class ResNet(nn.Module):
 		#for i in range(len(features)):
 		for i in range(1):
 			feature = features[i]
-			pooled_feature,probs_sizes = roi_pooling(feature,transformed_anchors[:,:4],size = (120,30),spatial_scale=1./self.downsampling_factors[i])
+			pooled_feature,probs_sizes = roi_pooling(feature,transformed_anchors[:,:4],size = (140,30),spatial_scale=1./self.downsampling_factors[i])
 			pooled_features.append(pooled_feature)
 		
 		pooled_features=torch.sum(torch.stack(pooled_features,dim=0),dim=0)
@@ -369,7 +370,7 @@ class ResNet(nn.Module):
 
             #scores = torch.max(regression[...,4:], dim=-1, keepdim=True)[0]
 
-            scores_over_thresh = (scores>0.15)[0, :, 0]
+            scores_over_thresh = (scores>0.5)[0, :, 0]
 
             if scores_over_thresh.sum() == 0:
                 # no boxes to NMS, just return
@@ -379,7 +380,7 @@ class ResNet(nn.Module):
             transformed_anchors = transformed_anchors[:, scores_over_thresh, :]
             scores = scores[:, scores_over_thresh, :]
 
-            anchors_nms_idx = nms(torch.cat([transformed_anchors[...,:4], scores], dim=2)[0, :, :], 0.15)
+            anchors_nms_idx = nms(torch.cat([transformed_anchors[...,:4], scores], dim=2)[0, :, :], 0.2)
 
             nms_scores, nms_class = classification[0, anchors_nms_idx, :].max(dim=1)
 
